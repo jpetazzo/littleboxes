@@ -1,0 +1,6 @@
+This directory will contain VMs (ready to run).
+
+Each VM is represented by a directory containing:
+- a file named "hda" (the boot disk)
+- a file named "hdb" (containing a cloud init payload)
+- a file named "run.sh" (a script starting the VM)
