@@ -1,10 +1,38 @@
 #!/bin/bash
 #set -ex
 
+info () {
+	>/dev/stderr echo "INFO: $*"
+}
+
+warn () {
+	>/dev/stderr echo "WARNING: $*"
+}
+
+err () {
+	>/dev/stderr echo "ERROR: $*"
+}
+
+die () {
+	err "$*"
+	exit 1
+}
+
+len () {
+	echo $#
+}
+
 _help="$(basename "$0") - a tool to manipulate little boxes"
 _cmd () {
 	COMMAND=$1
-	HELP=$2
+	shift
+	ARGS=""
+	while [ $# -gt 1 ]; do
+		ARGS="$ARGS $1"
+		shift
+	done
+	eval _args_$COMMAND=\"$ARGS\"
+	HELP=$1
 	_help=$(printf "%s\n%-10s\t%s" "$_help" "$COMMAND" "$HELP")
 }
 
@@ -12,59 +40,52 @@ _cmd_ () {
 	echo "$_help"
 }
 
-_check_image () {
-	if [ ! -n "$1" ]; then
-		echo "Specify image name"
-		exit 1
+_cmd attach VM "Attach to the console of a running VM"
+_cmd_attach () {
+	if [ $(_cmd_state "$VM") != running ]; then
+		die "VM $VM doesn't seem to be running."
 	fi
-	if [ "$2" = "exists" ]; then
-		if [ ! -d images/$1 ]; then
-			echo "Image $1 does not exist"
-			exit 1
-		fi
-	fi
+	info "Press ENTER to attach to console of VM $1."
+	info "The default login and password is 'ubuntu'."
+	info "Once attached, press 'Ctrl-B D' to detach."
+	read
+	tmux attach-session -t "$VM" 
 }
 
-_check_vm () {
-	if [ ! -n "$1" ]; then
-		echo "Specify VM name"
-		exit 1
-	fi
-	if [ "$2" = "exists" ]; then
-		if [ ! -d vms/$1 ]; then
-			echo "VM $1 does not exist"
-			exit 1
-		fi
-	fi
-}
-
-_cmd pull "Pull a VM image"
+_cmd pull IMAGE "Pull a VM image"
 _cmd_pull () {
-	IMAGE=$1
-	_check_image $IMAGE
+	if [ -d images/$IMAGE ]; then
+		die "Image $IMAGE already exists. Refusing to overwrite it."
+	fi
 	mkdir images/$IMAGE
 	wget https://cloud-images.ubuntu.com/$IMAGE/current/$IMAGE-server-cloudimg-amd64-disk1.img -O images/$IMAGE/hda
 }
 
-_cmd create "Create a VM from an image"
+_cmd create IMAGE VM "Create a VM from an image"
 _cmd_create () {
-	IMAGE=$1
-	VM=$2
-	_check_image $IMAGE exists
-	_check_vm $VM
+	if [ ! -d images/$IMAGE ]; then
+		die "Image $IMAGE doesn't exist."
+	fi
+	if [ -d vms/$VM ]; then
+		die "VM $VM already exists."
+	fi
 	mkdir vms/$VM
 	qemu-img create -f qcow2 -b ../../images/$IMAGE/hda vms/$VM/hda
 	cloud-localds --disk-format qcow2 --hostname $VM vms/$VM/hdb cloud-init
 	_cmd_config $VM
 }
 
-_cmd config "(Re)configure a VM"
+_cmd config VM "(Re)configure a VM"
 _cmd_config () {
-	VM=$1
-	_check_vm "$VM" exists
-	MAC=$(printf "52:54:00:%02x:%02x:%02x" $(($RANDOM%256)) $(($RANDOM%256)) $(($RANDOM%256)))
+	if [ ! -d vms/$VM ]; then
+		die "VM $VM doesn't exist."
+	fi
+	THREEBYTES="$(($RANDOM%256)) $(($RANDOM%256)) $(($RANDOM%256))"
+	echo $THREEBYTES >vms/$VM/threebytes
+	MAC=$(printf "52:54:00:%02x:%02x:%02x" $THREEBYTES)
+	LOOPBACK=127.$(echo $THREEBYTES | tr " " ".")
 	cat >vms/$VM/run.sh <<EOF
-#extra=,hostfwd=tcp:127.0.0.1:22001-:22
+extra=,hostfwd=tcp:$LOOPBACK:22222-:22
 qemu-system-x86_64 -m 1024 -enable-kvm \
 	-nographic \
 	-pidfile vms/$VM/pid \
@@ -73,7 +94,101 @@ qemu-system-x86_64 -m 1024 -enable-kvm \
 	-netdev user,id=n01\$extra \
 	-device e1000,netdev=n02,mac=$MAC \
 	-netdev vde,id=n02
+rm vms/$VM/pid
 EOF
+}
+
+_cmd rmv VM "Remove a VM"
+_cmd_rmv () {
+	STATE=$(_cmd_state "$VM")
+	if [ "$STATE" != stopped ]; then
+		die "I can only remove a VM if it is stopped. Current state is '$STATE'."
+	fi
+	rm -rf vms/$VM
+}
+
+_cmd ssh VM "SSH into a VM"
+_cmd_ssh () {
+	STATE=$(_cmd_state "$VM")
+	if [ "$STATE" != running ]; then
+		die "The VM doesn't seem to be running."
+	fi
+	ssh \
+		-o UserKnownHostsFile=/dev/null \
+		-o StrictHostKeyChecking=no \
+		-l ubuntu -p 22222 \
+		127.$(tr " " "." < vms/$VM/threebytes)
+}
+
+_cmd start VM "Start a VM"
+_cmd_start () {
+	STATE=$(_cmd_state "$VM")
+	case "$STATE" in
+	running)
+	       	die "The VM seems to be already running."
+		;;
+	stopped)
+		_cmd_vde
+		tmux new-session -d -s "$VM" sh vms/$VM/run.sh
+		info "VM $VM started."
+		;;
+	*)
+		die "The VM is in an unexpected state: $STATE."
+		;;
+	esac
+}
+
+_cmd state VM "Check status of a VM"
+_cmd_state () {
+	if [ ! -d "vms/$VM" ]; then
+		die "VM $VM doesn't exist."
+	fi
+	if [ -f vms/$VM/pid ]; then
+		PID=$(cat vms/$VM/pid)
+		if [ -d /proc/$PID ]; then
+			echo running
+		else
+			warn "PID file exists, but process $PID doesn't exist. Removing stale PID file."
+			rm vms/$VM/pid
+			echo stopped
+		fi
+	else
+		echo stopped
+	fi
+}
+
+_cmd stop VM "Stop a VM"
+_cmd_stop () {
+	STATE=$(_cmd_state "$VM")
+	if [ "$STATE" != running ]; then
+		die "VM $VM doesn't seem to be running. I cannot stop it."
+	fi
+	PID=$(cat vms/$VM/pid)
+	kill $PID
+	info "Sent signal to stop VM."
+}
+
+_cmd lsi "List images"
+_cmd_lsi () {
+	for DIR in images/*; do
+		if [ -d "$DIR" ]; then
+			IMAGE=$(basename $DIR)
+			SIZE=$(du -sh $DIR | cut -f1)
+			echo "$IMAGE ($SIZE)"
+		fi
+	done
+}
+
+_cmd lsv "List VMs"
+_cmd_lsv () {
+	for DIR in vms/*; do
+		if [ -d "$DIR" ]; then
+			VM=$(basename $DIR)
+			SIZE=$(du -sh $DIR | cut -f1)
+			STATUS=$(_cmd_state "$VM")
+			echo "$VM ($SIZE, $STATUS)"
+		fi
+	done
 }
 
 _cmd vde "Make sure that VDE is running"
@@ -83,54 +198,19 @@ _cmd_vde () {
 	fi
 }
 
-_cmd start "Start a VM"
-_cmd_start () {
-	VM=$1
-	_check_vm "$VM" exists
-	if [ -f vms/$VM/pid ]; then
-		PID=$(cat vms/$VM/pid)
-		if [ -d /proc/$PID ]; then
-			echo "pid file exists and process exists"
-			echo "the VM is already running?"
-			exit 1
-		fi
-		echo "found pid file but process doesn't exist"
-		rm vms/$VM/pid
-	fi
-	_cmd_vde
-	tmux has-session || tmux new-session -d
-	tmux new-window -d -n $VM sh vms/$VM/run.sh
-	echo "VM started"
-}
-
-_cmd stop "Stop a VM"
-_cmd_stop () {
-	VM=$1
-	_check_vm "$VM" exists
-	if [ ! -f vms/$VM/pid ]; then
-		echo "pid file not found"
-		exit 1
-	fi
-	PID=$(cat vms/$VM/pid)
-	if [ ! -d /proc/$PID ]; then
-		echo "process doesn't seem to be running"
-		exit 1
-	fi
-	kill $PID
-	echo "Sent signal to stop VM"
-}
-
-_cmd lsi "List images"
-_cmd_lsi () {
-	ls images
-}
-
-_cmd lsv "List VMs"
-_cmd_lsv () {
-	ls vms
-}
-
 cmd=$1
-fun=_cmd_$cmd
 shift
+fun=_cmd_$cmd
+eval args=\$_args_$cmd
+for arg in $args; do
+	if [ "$1" = "" ]; then
+		if [ $(len $args) = 1 ]; then
+			die "Command $cmd is expecting one argument:$args. It seems to be missing."
+		else
+			die "Command $cmd is expecting the following arguments:$args. $arg seems to be missing."
+		fi
+	fi
+	eval $arg=$1
+	shift
+done
 $fun "$@"
