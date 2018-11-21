@@ -1,6 +1,9 @@
 #!/bin/bash
 #set -ex
 
+# Let's go to our directory. VMs and images are stored relative to here.
+cd $(dirname $(readlink --canonicalize ~/bin/lb))
+
 info () {
 	>/dev/stderr echo "INFO: $*"
 }
@@ -118,6 +121,16 @@ _cmd_ssh () {
 		-o StrictHostKeyChecking=no \
 		-l ubuntu -p 22222 \
 		127.$(tr " " "." < vms/$VM/threebytes)
+}
+
+_cmd sshproxy VM "Connect to the SSH port of a VM"
+_cmd_sshproxy () {
+	VM=$(cut -d. -f1 <<<$VM)
+	STATE=$(_cmd_state "$VM")
+	if [ "$STATE" != running ]; then
+		die "The VM doesn't seem to be running."
+	fi
+	socat - TCP-CONNECT:127.$(tr " " "." < vms/$VM/threebytes):22222
 }
 
 _cmd start VM "Start a VM"
