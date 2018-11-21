@@ -75,6 +75,14 @@ Then you can do e.g. `scp foo.conf ubuntu@node1.lbx:`.
 **Note:** this requires the `lbx` script to be in your path.
 
 
+## Tweaking
+
+You can edit the `cloud-init` file to specify a custom
+Cloud Init payload. (For instance, you might want to change
+the SSH public key that's in there, since it's mine, and
+put yours instead.)
+
+
 ## Internals
 
 Images are stored in `images`, VMs are stored in `vms`.
