@@ -13,9 +13,10 @@ You need the following dependencies:
 
 | Dependency        | Binary               | Debian/Ubuntu package | ArchLinux package |
 | ------------------|----------------------|-----------------------|-------------------|
-| qemu              | `qemu-system-x86_64` |                       | `qemu`            |
-| VDE               | `vde_switch`         |                       | `vde2`            |
-| Cloud Init helper | `cloud-localds`      |                       | `cloud-utils`     |
+| qemu              | `qemu-system-x86_64` | `qemu`                | `qemu`            |
+| QCOW tools        | `qemu-img`           | `qemu-utils`          | `qemu`            |
+| VDE               | `vde_switch`         | `vde2`                | `vde2`            |
+| Cloud Init helper | `cloud-localds`      | `cloud-image-utils`   | `cloud-utils`     |
 | tmux              | `tmux`               | `tmux`                | `tmux`            |
 | socat             | `socat`              | `socat`               | `socat`           |
 

@@ -2,7 +2,7 @@
 #set -ex
 
 # Let's go to our directory. VMs and images are stored relative to here.
-cd $(dirname $(readlink --canonicalize ~/bin/lb))
+cd "$(dirname $(readlink --canonicalize "$0"))"
 
 info () {
 	>/dev/stderr echo "INFO: $*"
