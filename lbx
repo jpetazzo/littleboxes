@@ -25,6 +25,17 @@ len () {
 	echo $#
 }
 
+# Check for dependencies.
+for DEP in qemu-system-x86_64 qemu-img vde_switch cloud-localds tmux socat; do
+	if ! command -v $DEP >/dev/null; then
+        	err "Dependency $DEP not found. Please install it and try again."
+                err "You can see the list of dependencies (and the corresponding packages"
+                err "for some Linux distros) on this page:"
+                err "https://github.com/jpetazzo/littleboxes"
+                die ""
+        fi
+done
+
 _help="$(basename "$0") - a tool to manipulate little boxes"
 _cmd () {
 	COMMAND=$1
