@@ -84,7 +84,7 @@ _cmd_create () {
 		die "VM $VM already exists."
 	fi
 	mkdir vms/$VM
-	qemu-img create -f qcow2 -b ../../images/$IMAGE/hda vms/$VM/hda
+	qemu-img create -f qcow2 -b $PWD/images/$IMAGE/hda vms/$VM/hda
 	cloud-localds --disk-format qcow2 --hostname $VM vms/$VM/hdb cloud-init
 	_cmd_config $VM
 }
@@ -153,7 +153,7 @@ _cmd_start () {
 		;;
 	stopped)
 		_cmd_vde
-		tmux new-session -d -s "$VM" sh vms/$VM/run.sh
+		tmux new-session -d -s "$VM" "sh vms/$VM/run.sh"
 		info "VM $VM started."
 		;;
 	*)
